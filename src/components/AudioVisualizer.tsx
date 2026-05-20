@@ -1,5 +1,6 @@
 import { WaveformCanvas } from "./WaveformCanvas";
 import { useAudioCapture } from "../hooks/useAudioCapture";
+import { useWhisperModel } from "../hooks/useWhisperModel";
 
 export function AudioVisualizer() {
   const {
@@ -9,6 +10,9 @@ export function AudioVisualizer() {
     inputSampleRate,
     resampledSampleRate,
     resampledChunkLen,
+    chunksReady,
+    lastChunkDurationMs,
+    pendingSamples,
     devices,
     selectedDevice,
     error,
@@ -18,13 +22,15 @@ export function AudioVisualizer() {
     setSelectedDevice,
   } = useAudioCapture();
 
+  const { model, formattedSize, refreshModel } = useWhisperModel();
+
   const levelPercent = Math.min(100, Math.round(level * 100 * 4));
 
   return (
     <div className="velox">
       <header className="velox-header">
         <div>
-          <p className="eyebrow">Phase 1 · Audio capture</p>
+          <p className="eyebrow">Phase 2.2 · Whisper model</p>
           <h1>Velox</h1>
           <p className="subtitle">Real-time speech transcription overlay</p>
         </div>
@@ -80,17 +86,66 @@ export function AudioVisualizer() {
         </div>
       </section>
 
+      <section className="panel model-panel">
+        <div className="model-header">
+          <div>
+            <span className="stat-label">Whisper model</span>
+            <strong>{model?.modelId ?? "base-q5_1"}</strong>
+          </div>
+          <span className={`status-pill ${model?.installed ? "live" : "missing"}`}>
+            {model?.installed ? "Installed" : "Missing"}
+          </span>
+        </div>
+
+        <p className="model-detail">
+          {model?.installed
+            ? `${model.fileName} · ${formattedSize}`
+            : "Model not found on disk yet."}
+        </p>
+
+        {!model?.installed && (
+          <p className="model-hint">
+            Run in terminal: <code>npm run download-model</code>
+          </p>
+        )}
+
+        {model?.installed && (
+          <p className="model-path" title={model.path}>
+            {model.path}
+          </p>
+        )}
+
+        <button type="button" className="ghost model-refresh" onClick={() => void refreshModel()}>
+          Check model status
+        </button>
+      </section>
+
       <section className="panel stats">
         <div>
           <span className="stat-label">Input rate</span>
           <strong>{inputSampleRate ? `${inputSampleRate} Hz` : "—"}</strong>
         </div>
         <div>
+          <span className="stat-label">Chunks ready</span>
+          <strong>{isCapturing ? chunksReady : "—"}</strong>
+        </div>
+        <div>
+          <span className="stat-label">Buffer</span>
+          <strong>{isCapturing ? `${pendingSamples} samples` : "—"}</strong>
+        </div>
+      </section>
+
+      <section className="panel stats secondary-stats">
+        <div>
           <span className="stat-label">Resampled</span>
           <strong>{resampledSampleRate ? `${resampledSampleRate} Hz mono` : "—"}</strong>
         </div>
         <div>
-          <span className="stat-label">Last chunk</span>
+          <span className="stat-label">Chunk size</span>
+          <strong>{lastChunkDurationMs ? `${lastChunkDurationMs} ms` : "500 ms"}</strong>
+        </div>
+        <div>
+          <span className="stat-label">Last frame</span>
           <strong>{isCapturing ? `${resampledChunkLen} samples` : "—"}</strong>
         </div>
       </section>
@@ -98,7 +153,9 @@ export function AudioVisualizer() {
       {error && <p className="error-banner">{error}</p>}
 
       <footer className="footer-note">
-        Next up: stream 16 kHz PCM chunks to Deepgram for live transcription.
+        {model?.installed
+          ? "Model ready. Next step: connect Whisper to transcribe each 500 ms chunk."
+          : "Download the model first, then we wire up transcription."}
       </footer>
     </div>
   );

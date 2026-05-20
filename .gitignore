@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Whisper model weights (download with npm run download-model)
+models/*.bin
+models/*.partial

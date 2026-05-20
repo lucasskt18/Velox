@@ -1,6 +1,8 @@
 mod audio;
+mod models;
 
 use audio::{AudioCapture, list_input_devices};
+use models::get_whisper_model_status;
 use std::sync::Mutex;
 use tauri::{AppHandle, State};
 
@@ -48,6 +50,11 @@ fn is_audio_capturing(state: State<'_, AppState>) -> Result<bool, String> {
     Ok(audio.is_running())
 }
 
+#[tauri::command]
+fn get_whisper_model_status_command() -> models::WhisperModelStatus {
+    get_whisper_model_status()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -60,6 +67,7 @@ pub fn run() {
             start_audio_capture,
             stop_audio_capture,
             is_audio_capturing,
+            get_whisper_model_status_command,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

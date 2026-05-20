@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { AudioCaptureState, AudioLevelPayload } from "../types/audio";
+import type { AudioCaptureState, AudioChunkReadyPayload, AudioLevelPayload } from "../types/audio";
 
 const initialState: AudioCaptureState = {
   isCapturing: false,
@@ -10,6 +10,9 @@ const initialState: AudioCaptureState = {
   inputSampleRate: null,
   resampledSampleRate: null,
   resampledChunkLen: 0,
+  chunksReady: 0,
+  lastChunkDurationMs: null,
+  pendingSamples: 0,
   devices: [],
   selectedDevice: "",
   error: null,
@@ -63,12 +66,40 @@ export function useAudioCapture() {
     };
   }, []);
 
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+
+    void listen<AudioChunkReadyPayload>("audio-chunk-ready", (event) => {
+      const { chunkIndex, durationMs, pendingSamples } = event.payload;
+
+      setState((prev) => ({
+        ...prev,
+        chunksReady: chunkIndex,
+        lastChunkDurationMs: durationMs,
+        pendingSamples,
+      }));
+    }).then((fn) => {
+      unlisten = fn;
+    });
+
+    return () => {
+      unlisten?.();
+    };
+  }, []);
+
   const startCapture = useCallback(async () => {
     try {
       await invoke("start_audio_capture", {
         deviceName: state.selectedDevice || null,
       });
-      setState((prev) => ({ ...prev, isCapturing: true, error: null }));
+      setState((prev) => ({
+        ...prev,
+        isCapturing: true,
+        chunksReady: 0,
+        lastChunkDurationMs: null,
+        pendingSamples: 0,
+        error: null,
+      }));
     } catch (error) {
       setState((prev) => ({
         ...prev,
@@ -87,6 +118,9 @@ export function useAudioCapture() {
         level: 0,
         waveform: [],
         resampledChunkLen: 0,
+        chunksReady: 0,
+        lastChunkDurationMs: null,
+        pendingSamples: 0,
         error: null,
       }));
     } catch (error) {

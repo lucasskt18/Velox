@@ -6,6 +6,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
+use super::chunk_buffer::{ChunkBuffer, DEFAULT_CHUNK_MS};
 use super::resampler::{self, MonoResampler, TARGET_SAMPLE_RATE};
 
 const WAVEFORM_POINTS: usize = 64;
@@ -18,6 +19,15 @@ pub struct AudioLevelPayload {
     pub input_sample_rate: u32,
     pub resampled_sample_rate: u32,
     pub resampled_chunk_len: usize,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioChunkReadyPayload {
+    pub chunk_index: u64,
+    pub sample_count: usize,
+    pub duration_ms: u32,
+    pub pending_samples: usize,
 }
 
 pub struct AudioCapture {
@@ -94,6 +104,7 @@ fn run_capture(
 
     let chunk_frames = (input_sample_rate as usize / 50).max(128);
     let resampler = RefCell::new(MonoResampler::new(input_sample_rate, chunk_frames)?);
+    let chunk_buffer = RefCell::new(ChunkBuffer::new(DEFAULT_CHUNK_MS));
 
     let stream = match sample_format {
         SampleFormat::F32 => build_stream::<f32>(
@@ -103,6 +114,7 @@ fn run_capture(
             input_sample_rate,
             app,
             resampler,
+            chunk_buffer,
         )?,
         SampleFormat::I16 => build_stream::<i16>(
             &device,
@@ -111,6 +123,7 @@ fn run_capture(
             input_sample_rate,
             app,
             resampler,
+            chunk_buffer,
         )?,
         SampleFormat::U16 => build_stream::<u16>(
             &device,
@@ -119,6 +132,7 @@ fn run_capture(
             input_sample_rate,
             app,
             resampler,
+            chunk_buffer,
         )?,
         other => return Err(format!("unsupported sample format: {other:?}")),
     };
@@ -142,6 +156,7 @@ fn build_stream<T>(
     input_sample_rate: u32,
     app: AppHandle,
     resampler: RefCell<MonoResampler>,
+    chunk_buffer: RefCell<ChunkBuffer>,
 ) -> Result<Stream, String>
 where
     T: Sample + cpal::SizedSample,
@@ -158,11 +173,27 @@ where
                 let level = resampler::compute_rms(&mono);
                 let waveform = resampler::downsample_waveform(&mono, WAVEFORM_POINTS);
 
-                let resampled_chunk_len = resampler
-                    .borrow_mut()
-                    .process(&mono)
-                    .map(|chunk| chunk.len())
-                    .unwrap_or(0);
+                let resampled = resampler.borrow_mut().process(&mono).unwrap_or_default();
+                let resampled_chunk_len = resampled.len();
+
+                if !resampled.is_empty() {
+                    let completed = chunk_buffer.borrow_mut().push(&resampled);
+                    let pending_samples = chunk_buffer.borrow().pending_samples();
+
+                    for chunk in completed {
+                        let _ = app.emit(
+                            "audio-chunk-ready",
+                            AudioChunkReadyPayload {
+                                chunk_index: chunk.index,
+                                sample_count: chunk.samples.len(),
+                                duration_ms: chunk.duration_ms,
+                                pending_samples,
+                            },
+                        );
+                        // chunk.samples stays in Rust — Whisper will consume this next.
+                        let _ = chunk.samples;
+                    }
+                }
 
                 let _ = app.emit(
                     "audio-level",

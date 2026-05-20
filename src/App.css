@@ -131,6 +131,44 @@ h1 {
   align-self: flex-start;
 }
 
+.transcript-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 120px;
+}
+
+.transcript-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.transcript-clear {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8rem;
+}
+
+.transcript-latest {
+  margin: 0;
+  color: #e2e8f0;
+  font-size: 1rem;
+  line-height: 1.5;
+  min-height: 1.5em;
+}
+
+.transcript-full {
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+  color: #64748b;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
 .panel {
   background: rgba(15, 23, 42, 0.72);
   border: 1px solid rgba(148, 163, 184, 0.12);

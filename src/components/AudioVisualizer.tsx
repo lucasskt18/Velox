@@ -1,6 +1,7 @@
 import { WaveformCanvas } from "./WaveformCanvas";
 import { useAudioCapture } from "../hooks/useAudioCapture";
 import { useWhisperModel } from "../hooks/useWhisperModel";
+import { useTranscript } from "../hooks/useTranscript";
 
 export function AudioVisualizer() {
   const {
@@ -23,6 +24,7 @@ export function AudioVisualizer() {
   } = useAudioCapture();
 
   const { model, formattedSize, refreshModel } = useWhisperModel();
+  const { latestText, fullTranscript, clearTranscript } = useTranscript(isCapturing);
 
   const levelPercent = Math.min(100, Math.round(level * 100 * 4));
 
@@ -30,7 +32,7 @@ export function AudioVisualizer() {
     <div className="velox">
       <header className="velox-header">
         <div>
-          <p className="eyebrow">Phase 2.2 · Whisper model</p>
+          <p className="eyebrow">Phase 2.3 · Live transcript</p>
           <h1>Velox</h1>
           <p className="subtitle">Real-time speech transcription overlay</p>
         </div>
@@ -49,6 +51,25 @@ export function AudioVisualizer() {
           </div>
           <span className="mono">{levelPercent}%</span>
         </div>
+      </section>
+
+      <section className="panel transcript-panel">
+        <div className="transcript-header">
+          <span className="stat-label">Live transcript</span>
+          {fullTranscript && (
+            <button type="button" className="ghost transcript-clear" onClick={clearTranscript}>
+              Clear
+            </button>
+          )}
+        </div>
+
+        <p className="transcript-latest">
+          {isCapturing
+            ? latestText || "Speak into the microphone — text appears every ~500 ms..."
+            : "Press Start capture to begin transcribing."}
+        </p>
+
+        {fullTranscript && <p className="transcript-full">{fullTranscript}</p>}
       </section>
 
       <section className="panel controls">
@@ -154,8 +175,8 @@ export function AudioVisualizer() {
 
       <footer className="footer-note">
         {model?.installed
-          ? "Model ready. Next step: connect Whisper to transcribe each 500 ms chunk."
-          : "Download the model first, then we wire up transcription."}
+          ? "Whisper runs locally on each 500 ms chunk. First transcription may take a few seconds while the model loads."
+          : "Download the model first: npm run download-model"}
       </footer>
     </div>
   );

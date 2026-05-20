@@ -1,12 +1,13 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Sample, SampleFormat, Stream, StreamConfig};
+use crossbeam_channel::Sender;
 use std::cell::RefCell;
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
-use super::chunk_buffer::{ChunkBuffer, DEFAULT_CHUNK_MS};
+use super::chunk_buffer::{ChunkBuffer, CompletedChunk, DEFAULT_CHUNK_MS};
 use super::resampler::{self, MonoResampler, TARGET_SAMPLE_RATE};
 
 const WAVEFORM_POINTS: usize = 64;
@@ -49,7 +50,12 @@ impl AudioCapture {
         self.worker.is_some()
     }
 
-    pub fn start(&mut self, app: AppHandle, device_name: Option<String>) -> Result<(), String> {
+    pub fn start(
+        &mut self,
+        app: AppHandle,
+        device_name: Option<String>,
+        chunk_tx: Option<Sender<CompletedChunk>>,
+    ) -> Result<(), String> {
         if self.worker.is_some() {
             return Ok(());
         }
@@ -57,7 +63,7 @@ impl AudioCapture {
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = Arc::clone(&stop);
         let worker = thread::spawn(move || {
-            if let Err(error) = run_capture(app, device_name, worker_stop) {
+            if let Err(error) = run_capture(app, device_name, worker_stop, chunk_tx) {
                 eprintln!("audio capture stopped with error: {error}");
             }
         });
@@ -80,6 +86,7 @@ fn run_capture(
     app: AppHandle,
     device_name: Option<String>,
     stop: Arc<AtomicBool>,
+    chunk_tx: Option<Sender<CompletedChunk>>,
 ) -> Result<(), String> {
     let host = cpal::default_host();
     let device = match device_name {
@@ -115,6 +122,7 @@ fn run_capture(
             app,
             resampler,
             chunk_buffer,
+            chunk_tx.clone(),
         )?,
         SampleFormat::I16 => build_stream::<i16>(
             &device,
@@ -124,6 +132,7 @@ fn run_capture(
             app,
             resampler,
             chunk_buffer,
+            chunk_tx.clone(),
         )?,
         SampleFormat::U16 => build_stream::<u16>(
             &device,
@@ -133,6 +142,7 @@ fn run_capture(
             app,
             resampler,
             chunk_buffer,
+            chunk_tx.clone(),
         )?,
         other => return Err(format!("unsupported sample format: {other:?}")),
     };
@@ -157,6 +167,7 @@ fn build_stream<T>(
     app: AppHandle,
     resampler: RefCell<MonoResampler>,
     chunk_buffer: RefCell<ChunkBuffer>,
+    chunk_tx: Option<Sender<CompletedChunk>>,
 ) -> Result<Stream, String>
 where
     T: Sample + cpal::SizedSample,
@@ -181,17 +192,23 @@ where
                     let pending_samples = chunk_buffer.borrow().pending_samples();
 
                     for chunk in completed {
+                        let chunk_index = chunk.index;
+                        let sample_count = chunk.samples.len();
+                        let duration_ms = chunk.duration_ms;
+
+                        if let Some(ref tx) = chunk_tx {
+                            let _ = tx.send(chunk);
+                        }
+
                         let _ = app.emit(
                             "audio-chunk-ready",
                             AudioChunkReadyPayload {
-                                chunk_index: chunk.index,
-                                sample_count: chunk.samples.len(),
-                                duration_ms: chunk.duration_ms,
+                                chunk_index,
+                                sample_count,
+                                duration_ms,
                                 pending_samples,
                             },
                         );
-                        // chunk.samples stays in Rust — Whisper will consume this next.
-                        let _ = chunk.samples;
                     }
                 }
 
